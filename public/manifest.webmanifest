@@ -1,6 +1,6 @@
 {
-  "name": "WalletWatch",
-  "short_name": "WalletWatch",
+  "name": "OnlyPubs",
+  "short_name": "OnlyPubs",
   "description": "Watch public crypto wallet balances across BTC, ETH, BNB, TRX and TON.",
   "start_url": "./",
   "scope": "./",

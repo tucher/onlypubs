@@ -53,7 +53,7 @@ export function ManageDialog({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "walletwatch.json";
+    a.download = "OnlyPubs.json";
     a.click();
     URL.revokeObjectURL(url);
   }

@@ -59,7 +59,7 @@ export default function App() {
           ⚙
         </button>
         <div className="total" data-testid="grand-total">
-          {hasWallets ? usd(total) : "WalletWatch"}
+          {hasWallets ? usd(total) : "OnlyPubs"}
         </div>
         <div className="actions">
           <button

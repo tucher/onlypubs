@@ -1,6 +1,6 @@
-# WalletWatch — Web
+# OnlyPubs — Web
 
-A standalone, backend-less rebuild of the WalletWatch iOS app. Watches public crypto
+A standalone, backend-less rebuild of the OnlyPubs iOS app. Watches public crypto
 addresses across BTC, ETH, BNB, TRX, TON (+ USDT/USDC/BUSD), shows per-wallet and total
 balances in USD, and stores the wallet list as JSON in the browser's `localStorage`.
 

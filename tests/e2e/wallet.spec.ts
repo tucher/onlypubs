@@ -23,7 +23,7 @@ async function goto(page: Page, opts?: MockOptions) {
 test("shows the empty state initially", async ({ page }) => {
   await goto(page);
   await expect(page.getByTestId("empty-state")).toBeVisible();
-  await expect(page.getByTestId("grand-total")).toHaveText("WalletWatch");
+  await expect(page.getByTestId("grand-total")).toHaveText("OnlyPubs");
 });
 
 test("adds a BTC wallet and shows balance + grand total", async ({ page }) => {
