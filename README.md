@@ -39,13 +39,6 @@ Data-driven **registry** + per-**family** adapters:
 - `src/ui/` — React components: list, proportional bars, grouping picker, add/manage
   dialogs (native `<dialog>`, bottom-sheet on mobile), overflow menus, toast.
 
-## Reused iOS assets
-
-Coin logos (`public/icons/*.png`), the cosmonaut empty-state image (`public/cosmo.png`),
-and the app icon (`public/app-icon.png`) are copied from the iOS asset catalog. Coin icons
-fall back to a colored letter badge if a logo is missing. The Telegram / Terms / Privacy
-links (Manage sheet) point to the same URLs as the app. A PWA manifest
-(`public/manifest.webmanifest`) makes it installable.
 
 ## Notes
 
