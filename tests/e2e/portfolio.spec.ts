@@ -23,7 +23,7 @@ const ASSETS = [
 
 async function seed(page: Page) {
   await page.addInitScript((assets) => {
-    localStorage.setItem("walletwatch.assets.v1", JSON.stringify(assets));
+    localStorage.setItem("onlypubs.assets.v1", JSON.stringify(assets));
   }, ASSETS);
   await mockNetwork(page);
   await page.goto("/");

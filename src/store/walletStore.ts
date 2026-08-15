@@ -17,12 +17,21 @@ import {
 } from "../persistence/storage";
 import { fetchAllBalances, fetchRates } from "../adapters";
 
-const GROUPING_KEY = "walletwatch.grouping.v1";
+const GROUPING_KEY = "onlypubs.grouping.v1";
+const LEGACY_GROUPING_KEY = "walletwatch.grouping.v1"; // pre-rename; migrated on first load
 const REFRESH_THROTTLE_MS = 10_000; // iOS: min 10s between refreshes
 
 function loadGrouping(): GroupingMode {
   try {
-    const v = localStorage.getItem(GROUPING_KEY) || "";
+    let v = localStorage.getItem(GROUPING_KEY);
+    if (v === null) {
+      const legacy = localStorage.getItem(LEGACY_GROUPING_KEY);
+      if (legacy !== null) {
+        localStorage.setItem(GROUPING_KEY, legacy);
+        localStorage.removeItem(LEGACY_GROUPING_KEY);
+        v = legacy;
+      }
+    }
     return v === "byToken" || v === "byTag" ? v : "byChain";
   } catch {
     return "byChain";

@@ -24,15 +24,23 @@ describe("persistence", () => {
     expect(loadAssets()).toEqual(assets);
   });
 
+  it("migrates data from the legacy walletwatch key on load", () => {
+    localStorage.setItem("walletwatch.assets.v1", JSON.stringify([A("btc", null, "bc1", "old")]));
+    expect(loadAssets()).toEqual([A("btc", null, "bc1", "old")]);
+    // migrated to the new key, legacy removed
+    expect(localStorage.getItem("onlypubs.assets.v1")).not.toBeNull();
+    expect(localStorage.getItem("walletwatch.assets.v1")).toBeNull();
+  });
+
   it("returns [] when empty or corrupt", () => {
     expect(loadAssets()).toEqual([]);
-    localStorage.setItem("walletwatch.assets.v1", "{not json");
+    localStorage.setItem("onlypubs.assets.v1", "{not json");
     expect(loadAssets()).toEqual([]);
   });
 
   it("de-dupes and drops malformed entries on load", () => {
     localStorage.setItem(
-      "walletwatch.assets.v1",
+      "onlypubs.assets.v1",
       JSON.stringify([
         A("btc", null, "bc1"),
         A("btc", null, "bc1"), // dup

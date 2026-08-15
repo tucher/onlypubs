@@ -82,7 +82,7 @@ describe("walletStore", () => {
   it("persists assets across store reloads via localStorage", () => {
     useWalletStore.getState().add("bc1", "btc", [], "cold");
     // simulate reload
-    const persisted = JSON.parse(localStorage.getItem("walletwatch.assets.v1")!);
+    const persisted = JSON.parse(localStorage.getItem("onlypubs.assets.v1")!);
     expect(persisted).toEqual([{ chain: "btc", token: null, adr: "bc1", title: "cold" }]);
   });
 });

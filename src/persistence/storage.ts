@@ -4,7 +4,22 @@ import { assetId } from "../registry";
 // Wallet list persisted as JSON in localStorage. The array shape
 // [{ chain, token, adr, title }] is identical to the iOS import/export schema,
 // so files move between the app and the web version unchanged.
-const STORAGE_KEY = "walletwatch.assets.v1";
+const STORAGE_KEY = "onlypubs.assets.v1";
+const LEGACY_STORAGE_KEY = "walletwatch.assets.v1"; // pre-rename; migrated on first load
+
+// Copy the wallet list from the old key to the new one, once.
+function migrateLegacyKey(): void {
+  try {
+    if (localStorage.getItem(STORAGE_KEY) !== null) return;
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy !== null) {
+      localStorage.setItem(STORAGE_KEY, legacy);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
 
 function normalize(raw: unknown): Asset[] {
   if (!Array.isArray(raw)) return [];
@@ -29,6 +44,7 @@ function normalize(raw: unknown): Asset[] {
 }
 
 export function loadAssets(): Asset[] {
+  migrateLegacyKey();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
