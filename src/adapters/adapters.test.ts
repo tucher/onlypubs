@@ -47,7 +47,7 @@ describe("evm encoding", () => {
   });
 });
 
-describe("tron adapter (TronScan)", () => {
+describe("tron adapter (TronScan -> TronGrid)", () => {
   it("reads native + TRC-20 balances from one account call", async () => {
     mockFetch((url) =>
       url.includes("tronscanapi")
@@ -77,6 +77,86 @@ describe("tron adapter (TronScan)", () => {
       { chain: "trx", token: "usdt", adr: "TXYZ", title: null },
     ]);
     expect(balances[0].raw).toBe("0");
+  });
+
+  it("fails over to TronGrid when TronScan is unreachable", async () => {
+    mockFetch((url) =>
+      url.includes("trongrid")
+        ? {
+            success: true,
+            data: [
+              {
+                balance: 7000000, // 7 TRX
+                trc20: [{ TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t: "250000000" }], // 250 USDT
+              },
+            ],
+          }
+        : undefined, // TronScan throws
+    );
+    const trx = getChain("trx");
+    const balances = await tronAdapter.fetchBalances(trx, [
+      { chain: "trx", token: null, adr: "TXYZ", title: null },
+      { chain: "trx", token: "usdt", adr: "TXYZ", title: null },
+    ]);
+    expect(balances.find((b) => !b.asset.token)?.raw).toBe("7000000");
+    expect(balances.find((b) => b.asset.token === "usdt")?.raw).toBe("250000000");
+  });
+
+  it("fails over when TronScan returns 200 with an unrecognized shape", async () => {
+    // A shape change must NOT read as an empty wallet: no recognizable field means
+    // fail over, not report zero.
+    mockFetch((url) =>
+      url.includes("tronscanapi")
+        ? { message: "api key required" }
+        : { success: true, data: [{ balance: 3000000 }] },
+    );
+    const trx = getChain("trx");
+    const balances = await tronAdapter.fetchBalances(trx, [
+      { chain: "trx", token: null, adr: "TXYZ", title: null },
+    ]);
+    expect(balances[0].raw).toBe("3000000");
+  });
+
+  it("fails over when TronScan omits the TRC-20 section for a token asset", async () => {
+    // `balance` alone parses fine, but it cannot answer a USDT row. Reporting 0
+    // would be indistinguishable from an emptied wallet, so go to the fallback.
+    mockFetch((url) =>
+      url.includes("tronscanapi")
+        ? { balance: 5000000 } // no trc20token_balances
+        : {
+            success: true,
+            data: [{ balance: 5000000, trc20: [{ TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t: "42" }] }],
+          },
+    );
+    const trx = getChain("trx");
+    const balances = await tronAdapter.fetchBalances(trx, [
+      { chain: "trx", token: "usdt", adr: "TXYZ", title: null },
+    ]);
+    expect(balances[0].raw).toBe("42");
+  });
+
+  it("marks the chain failed rather than reporting 0 when no provider has TRC-20 data", async () => {
+    mockFetch((url) =>
+      url.includes("tronscanapi")
+        ? { balance: 5000000 }
+        : { success: true, data: [{ balance: 5000000 }] },
+    );
+    const trx = getChain("trx");
+    await expect(
+      tronAdapter.fetchBalances(trx, [
+        { chain: "trx", token: "usdt", adr: "TXYZ", title: null },
+      ]),
+    ).rejects.toThrow();
+  });
+
+  it("reads an unactivated address (empty TronGrid data) as zero", async () => {
+    mockFetch((url) => (url.includes("trongrid") ? { success: true, data: [] } : undefined));
+    const trx = getChain("trx");
+    const balances = await tronAdapter.fetchBalances(trx, [
+      { chain: "trx", token: null, adr: "TXYZ", title: null },
+      { chain: "trx", token: "usdt", adr: "TXYZ", title: null },
+    ]);
+    expect(balances.every((b) => b.raw === "0")).toBe(true);
   });
 });
 
