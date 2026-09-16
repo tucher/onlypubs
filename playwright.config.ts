@@ -9,6 +9,12 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "list" : [["list"]],
+  expect: {
+    // Text antialiasing shifts by a few dozen pixels across OS/Chromium updates.
+    // A real UI regression moves thousands, so a small tolerance keeps these
+    // snapshots meaningful instead of flaky.
+    toHaveScreenshot: { maxDiffPixels: 200 },
+  },
   use: {
     baseURL: "http://localhost:4173",
     trace: "on-first-retry",

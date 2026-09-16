@@ -28,6 +28,9 @@ async function seed(page: Page) {
   await mockNetwork(page);
   await page.goto("/");
   await expect(page.getByTestId("wallet-list")).toBeVisible();
+  // Tron is fetched serially (paced under its rps cap), so it lands after the
+  // other chains. Wait for the refresh to finish or the screenshot races it.
+  await expect(page.getByTestId("statusline")).toContainText("Updated");
 }
 
 test("byChain: no address-count subtitle, bars nested", async ({ page }) => {

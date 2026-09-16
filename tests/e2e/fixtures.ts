@@ -72,12 +72,24 @@ export async function mockNetwork(page: Page, opts: MockOptions = {}) {
       return json(route, { jsonrpc: "2.0", id: 1, result: "0x0" });
     }
 
-    // Tron (TronScan): native + all TRC-20 in one call
-    if (url.includes("tronscanapi")) {
+    // Tron (TronScan, either host): native + all TRC-20 in one call
+    if (url.includes("tronscan")) {
       return json(route, {
         balance: 5000000, // 5 TRX
         trc20token_balances: [
           { tokenId: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", balance: "100000000" }, // 100 USDT
+        ],
+      });
+    }
+    // Tron (TronGrid failover): same data, different envelope
+    if (url.includes("trongrid")) {
+      return json(route, {
+        success: true,
+        data: [
+          {
+            balance: 5000000,
+            trc20: [{ TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t: "100000000" }],
+          },
         ],
       });
     }

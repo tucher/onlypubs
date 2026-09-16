@@ -51,12 +51,16 @@ export const CHAINS: ChainConfig[] = [
     family: "tron",
     coingeckoId: "tron",
     decimals: 6,
-    // TronScan first: keyless + CORS, returns native + all TRC-20 in one call, and
-    // is not aggressively rate-limited. TronGrid is the failover — same one-call
-    // shape, but its keyless tier 429s after ~3 requests, so it only has to hold
-    // up on the rare occasions TronScan refuses (it has been progressively
-    // tightening keyless access since 2025).
-    rpcs: ["https://apilist.tronscanapi.com", "https://api.trongrid.io"],
+    // Measured 2026-09: TronScan now enforces allowed_rps(3) on keyless callers
+    // and then SUSPENDS the caller for ~34s, which fails every later call too;
+    // TronGrid's keyless tier 429s after ~2 requests. So keep three hosts and
+    // alternate providers, so one provider's suspension still leaves a live path.
+    // The adapter also paces its requests to stay under the cap (see tron.ts).
+    rpcs: [
+      "https://apilist.tronscan.org", // TronScan
+      "https://api.trongrid.io", // TronGrid — different provider, real redundancy
+      "https://apilist.tronscanapi.com", // TronScan, alternate host
+    ],
     color: SECTION_BAR_COLOR,
   },
   {

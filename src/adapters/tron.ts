@@ -1,12 +1,13 @@
 import type { Asset, Balance } from "../domain/types";
 import type { ChainAdapter } from "./types";
-import { httpJson, withFallback, settleAll } from "./http";
+import { httpJson, withFallback, settleSerial } from "./http";
 import { getToken } from "../registry";
 
-// Tron via TronScan (apilist.tronscanapi.com) with a TronGrid failover. Both are
-// keyless + CORS-enabled, both speak Base58 (no hex conversion), and both return
-// the native TRX balance AND every TRC-20 balance in ONE request per address —
-// they just wrap it differently, so each provider is parsed into `TronAccount`.
+// Tron via TronScan with a TronGrid failover (see the chain registry for the
+// ordered host list). All of them are keyless + CORS-enabled, all speak Base58
+// (no hex conversion), and all return the native TRX balance AND every TRC-20
+// balance in ONE request per address — they just wrap it differently, so each
+// provider is parsed into `TronAccount`.
 interface TronAccount {
   trx: string; // native balance in SUN, raw integer string
   // Base58 contract -> raw balance. `null` means the response carried no TRC-20
@@ -67,6 +68,12 @@ function fetchAccount(base: string, adr: string, signal?: AbortSignal): Promise<
   }).then(parseTrongrid);
 }
 
+// TronScan caps keyless callers at ~3 requests/second and answers a burst with a
+// multi-second suspension that fails EVERY later call. One request per address
+// fired in parallel trips that instantly, so Tron is fetched serially with a gap
+// that keeps us comfortably under the cap.
+const TRON_REQUEST_GAP_MS = 400;
+
 export const tronAdapter: ChainAdapter = {
   family: "tron",
   async fetchBalances(chain, assets, signal) {
@@ -78,24 +85,28 @@ export const tronAdapter: ChainAdapter = {
       else byAddr.set(a.adr, [a]);
     }
 
-    const perAddress = await settleAll([...byAddr], async ([adr, group]) => {
-      const needTokens = group.some((a) => a.token !== null);
-      const acct = await withFallback(chain.rpcs, async (base) => {
-        const a = await fetchAccount(base, adr, signal);
-        // A response with no TRC-20 section cannot answer a token asset, and
-        // reporting 0 would look exactly like an emptied wallet. Reject it here,
-        // inside the failover, so the next provider gets a turn.
-        if (needTokens && !a.trc20) throw new Error(`${base}: no TRC-20 data for ${adr}`);
-        return a;
-      });
-      return group.map((asset): Balance => {
-        if (!asset.token) return { asset, raw: acct.trx };
-        const { contract } = getToken(asset.token).perChain[chain.id];
-        // `trc20` is non-null here: the guard above rejected any account that
-        // lacked it while this group needed tokens.
-        return { asset, raw: acct.trc20?.get(contract) ?? "0" };
-      });
-    });
+    const perAddress = await settleSerial(
+      [...byAddr],
+      async ([adr, group]) => {
+        const needTokens = group.some((a) => a.token !== null);
+        const acct = await withFallback(chain.rpcs, async (base) => {
+          const a = await fetchAccount(base, adr, signal);
+          // A response with no TRC-20 section cannot answer a token asset, and
+          // reporting 0 would look exactly like an emptied wallet. Reject it here,
+          // inside the failover, so the next provider gets a turn.
+          if (needTokens && !a.trc20) throw new Error(`${base}: no TRC-20 data for ${adr}`);
+          return a;
+        });
+        return group.map((asset): Balance => {
+          if (!asset.token) return { asset, raw: acct.trx };
+          const { contract } = getToken(asset.token).perChain[chain.id];
+          // `trc20` is non-null here: the guard above rejected any account that
+          // lacked it while this group needed tokens.
+          return { asset, raw: acct.trc20?.get(contract) ?? "0" };
+        });
+      },
+      TRON_REQUEST_GAP_MS,
+    );
 
     return perAddress.flat();
   },

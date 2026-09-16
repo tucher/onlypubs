@@ -5,6 +5,7 @@ import { utxoAdapter } from "./utxo";
 import { tonAdapter } from "./ton";
 import { tronAdapter } from "./tron";
 import { fetchAllBalances } from "./index";
+import { HttpError, markRateLimited, resetCooldowns, settleSerial, withFallback } from "./http";
 
 function mockFetch(handler: (url: string, init?: any) => any) {
   vi.stubGlobal(
@@ -21,7 +22,10 @@ function mockFetch(handler: (url: string, init?: any) => any) {
   );
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  resetCooldowns();
+});
 
 describe("evm encoding", () => {
   it("encodes balanceOf calldata (selector + padded address)", () => {
@@ -209,5 +213,85 @@ describe("fetchAllBalances — per-chain isolation + endpoint fallback", () => {
     expect(btc.balances[0].raw).toBe("100000000");
     expect(eth.ok).toBe(false);
     expect(eth.balances).toEqual([]);
+  });
+});
+
+describe("rate-limit resilience (cooldown + pacing)", () => {
+  it("fails over on 429, then skips the throttled host while it cools down", async () => {
+    const hits: string[] = [];
+    const call = () =>
+      withFallback(["https://a.test", "https://b.test"], async (base) => {
+        hits.push(base);
+        if (base.includes("a.test")) throw new HttpError(429, base);
+        return "ok";
+      });
+
+    expect(await call()).toBe("ok");
+    expect(hits).toEqual(["https://a.test", "https://b.test"]);
+
+    // A 429 here means "suspended for tens of seconds" — retrying it on the very
+    // next address would just burn the refresh, so it must be skipped.
+    hits.length = 0;
+    expect(await call()).toBe("ok");
+    expect(hits).toEqual(["https://b.test"]);
+  });
+
+  it("still attempts a parked host when every host is cooling down", async () => {
+    markRateLimited("https://a.test");
+    const hits: string[] = [];
+    const got = await withFallback(["https://a.test"], async (base) => {
+      hits.push(base);
+      return "ok";
+    });
+    expect(got).toBe("ok"); // better than failing without trying anything
+    expect(hits).toEqual(["https://a.test"]);
+  });
+
+  it("settleSerial never overlaps items and keeps partial successes", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const out = await settleSerial([1, 2, 3], async (n) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      if (n === 2) throw new Error("boom");
+      return n;
+    });
+    expect(maxInFlight).toBe(1);
+    expect(out).toEqual([1, 3]);
+  });
+
+  it("settleSerial throws only when every item fails", async () => {
+    await expect(
+      settleSerial([1, 2], async () => {
+        throw new Error("nope");
+      }),
+    ).rejects.toThrow("nope");
+  });
+
+  it("tron adapter fetches addresses serially so a burst cannot trip the rps cap", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 1));
+        inFlight--;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ balance: 1, trc20token_balances: [] }),
+        } as Response;
+      }),
+    );
+    const trx = getChain("trx");
+    await tronAdapter.fetchBalances(trx, [
+      { chain: "trx", token: null, adr: "T1", title: null },
+      { chain: "trx", token: null, adr: "T2", title: null },
+    ]);
+    expect(maxInFlight).toBe(1);
   });
 });
