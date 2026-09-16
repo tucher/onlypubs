@@ -51,9 +51,12 @@ export const CHAINS: ChainConfig[] = [
     family: "tron",
     coingeckoId: "tron",
     decimals: 6,
-    // TronScan: keyless + CORS, returns native + all TRC-20 in one call, and is not
-    // aggressively rate-limited (TronGrid's keyless tier 429s after ~3 requests).
-    rpcs: ["https://apilist.tronscanapi.com"],
+    // TronScan first: keyless + CORS, returns native + all TRC-20 in one call, and
+    // is not aggressively rate-limited. TronGrid is the failover — same one-call
+    // shape, but its keyless tier 429s after ~3 requests, so it only has to hold
+    // up on the rare occasions TronScan refuses (it has been progressively
+    // tightening keyless access since 2025).
+    rpcs: ["https://apilist.tronscanapi.com", "https://api.trongrid.io"],
     color: SECTION_BAR_COLOR,
   },
   {
