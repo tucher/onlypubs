@@ -95,7 +95,7 @@ export async function mockNetwork(page: Page, opts: MockOptions = {}) {
     }
 
     // TON
-    if (url.includes("tonapi")) return json(route, { balance: 2500000000 }); // 2.5 TON
+    if (url.includes("tonapi")) return json(route, { balance: 2500000000 }); // 2.5 GRAM
     if (url.includes("toncenter")) return json(route, { ok: true, result: "2500000000" });
 
     // anything else is an unexpected live call — fail loudly

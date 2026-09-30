@@ -1,7 +1,7 @@
 {
   "name": "OnlyPubs",
   "short_name": "OnlyPubs",
-  "description": "Watch public crypto wallet balances across BTC, ETH, BNB, TRX and TON.",
+  "description": "Watch public crypto wallet balances across BTC, ETH, BNB, TRX and GRAM (TON).",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

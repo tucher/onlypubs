@@ -185,7 +185,7 @@ describe("ton adapter", () => {
     const balances = await tonAdapter.fetchBalances(ton, [
       { chain: "ton", token: null, adr: "EQabc", title: null },
     ]);
-    expect(balances[0].raw).toBe("2500000000"); // 2.5 TON
+    expect(balances[0].raw).toBe("2500000000"); // 2.5 GRAM
   });
 });
 

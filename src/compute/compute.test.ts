@@ -116,7 +116,7 @@ describe("grouping — byTag", () => {
     expect(trezor?.totalUsd).toBe(63000);
     expect(trezor?.rows).toHaveLength(2); // BTC row + ETH row
     const untitled = s.find((x) => x.name === "Untitled");
-    expect(untitled?.totalUsd).toBe(5); // 1 TON * $5
+    expect(untitled?.totalUsd).toBe(5); // 1 GRAM * $5
   });
 });
 

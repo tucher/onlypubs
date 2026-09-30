@@ -1,7 +1,7 @@
 # OnlyPubs — Web
 
 A standalone, backend-less rebuild of the OnlyPubs iOS app. Watches public crypto
-addresses across BTC, ETH, BNB, TRX, TON (+ USDT/USDC/BUSD), shows per-wallet and total
+addresses across BTC, ETH, BNB, TRX, GRAM on TON (+ USDT/USDC/BUSD), shows per-wallet and total
 balances in USD, and stores the wallet list as JSON in the browser's `localStorage`.
 
 No server, no API keys — every balance/price source is a keyless, CORS-enabled public

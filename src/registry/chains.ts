@@ -64,9 +64,12 @@ export const CHAINS: ChainConfig[] = [
     color: SECTION_BAR_COLOR,
   },
   {
+    // The coin was renamed Toncoin/TON -> Gram/GRAM; the network is still TON.
+    // Only the ticker changes: `id` is persisted in saved wallets and the
+    // iOS-compatible export JSON, and CoinGecko kept the same id.
     id: "ton",
     name: "Ton",
-    symbol: "TON",
+    symbol: "GRAM",
     family: "ton",
     coingeckoId: "the-open-network",
     decimals: 9,
