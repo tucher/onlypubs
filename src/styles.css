@@ -186,6 +186,10 @@ main.list {
 .row .name {
   font-weight: 600;
   line-height: 1.15;
+  /* fund names run long; the full name is in the add preview and Manage */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .row .subtitle {
   font-size: 0.74rem;
@@ -522,4 +526,21 @@ dialog.sheet::backdrop {
 }
 .links a:hover {
   text-decoration: underline;
+}
+
+/* ---- security lookup (add dialog) ---- */
+.lookup {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--fg-secondary);
+}
+.lookup:empty {
+  display: none;
+}
+.lookup-name {
+  font-weight: 600;
+  color: var(--fg);
+}
+.lookup-error {
+  color: var(--danger);
 }

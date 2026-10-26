@@ -3,19 +3,28 @@ import type {
   Asset,
   Balance,
   ChainId,
+  FxRates,
   GroupingMode,
+  Holding,
+  Quote,
+  Quotes,
   Rates,
+  SecurityMeta,
   TokenId,
 } from "../domain/types";
 import { assetId } from "../registry";
 import {
   loadAssets,
   saveAssets,
-  exportAssets,
+  loadHoldings,
+  saveHoldings,
+  newHoldingId,
+  exportPortfolio,
   parseImport,
   mergeAssets,
+  mergeHoldings,
 } from "../persistence/storage";
-import { fetchAllBalances, fetchRates } from "../adapters";
+import { fetchAllBalances, fetchFx, fetchRates, refreshQuotes } from "../adapters";
 
 const GROUPING_KEY = "onlypubs.grouping.v1";
 const LEGACY_GROUPING_KEY = "walletwatch.grouping.v1"; // pre-rename; migrated on first load
@@ -38,18 +47,30 @@ function loadGrouping(): GroupingMode {
   }
 }
 
+const sameTag = (a: string | null, b: string | null) =>
+  (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+
 export interface WalletState {
   assets: Asset[];
   balances: Balance[];
   rates: Rates;
   loading: ChainId[]; // chains currently fetching
   failed: ChainId[]; // chains whose last fetch failed
+  holdings: Holding[];
+  quotes: Quotes;
+  fx: FxRates;
+  secLoading: boolean; // securities quotes currently fetching
+  secFailed: boolean; // last securities refresh failed
   lastUpdated: number | null;
   groupingMode: GroupingMode;
 
   add: (address: string, chain: ChainId, tokens: TokenId[], title: string) => boolean;
   remove: (id: string) => void;
   updateTitle: (adr: string, newTitle: string) => void;
+  addHolding: (isin: string, qty: number, title: string, meta: SecurityMeta, quote: Quote) => boolean;
+  updateHolding: (id: string, qty: number, title: string) => void;
+  removeHolding: (id: string) => void;
+  ensureFx: () => void;
   setGroupingMode: (mode: GroupingMode) => void;
   check: (force?: boolean) => void;
   exportJson: () => string;
@@ -64,6 +85,11 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   rates: {},
   loading: [],
   failed: [],
+  holdings: loadHoldings(),
+  quotes: {},
+  fx: {},
+  secLoading: false,
+  secFailed: false,
   lastUpdated: null,
   groupingMode: loadGrouping(),
 
@@ -101,6 +127,42 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     set({ assets, balances });
   },
 
+  // The quote comes from the lookup the add dialog already made, so the new
+  // holding is priced at once. The same ISIN may sit under several tags (two
+  // brokers); only the same ISIN under the same tag is a duplicate.
+  addHolding(isin, qty, title, meta, quote) {
+    const label = title.trim() || null;
+    if (get().holdings.some((h) => h.isin === isin && sameTag(h.title, label))) return false;
+    const holdings = [...get().holdings, { id: newHoldingId(), isin, qty, title: label, meta }];
+    saveHoldings(holdings);
+    set((s) => ({ holdings, quotes: { ...s.quotes, [isin]: quote } }));
+    get().ensureFx();
+    return true;
+  },
+
+  updateHolding(id, qty, title) {
+    const t = title.trim() || null;
+    const holdings = get().holdings.map((h) => (h.id === id ? { ...h, qty, title: t } : h));
+    saveHoldings(holdings);
+    set({ holdings });
+  },
+
+  removeHolding(id) {
+    const holdings = get().holdings.filter((h) => h.id !== id);
+    saveHoldings(holdings);
+    set({ holdings });
+  },
+
+  // The add dialog needs rates to show a USD sum before any holding exists.
+  ensureFx() {
+    if (Object.keys(get().fx).length > 0) return;
+    fetchFx()
+      .then((fx) => set({ fx }))
+      .catch(() => {
+        /* the next refresh retries */
+      });
+  },
+
   setGroupingMode(mode) {
     try {
       localStorage.setItem(GROUPING_KEY, mode);
@@ -111,9 +173,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   },
 
   check(force = false) {
-    const { assets, loading, lastUpdated } = get();
-    if (assets.length === 0) return;
-    if (loading.length > 0) return; // already fetching
+    const { assets, holdings, loading, secLoading, lastUpdated } = get();
+    if (assets.length === 0 && holdings.length === 0) return;
+    if (loading.length > 0 || secLoading) return; // already fetching
     if (!force && lastUpdated !== null && Date.now() - lastUpdated < REFRESH_THROTTLE_MS) return;
 
     abort?.abort();
@@ -121,7 +183,16 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     const signal = abort.signal;
 
     const chainsInvolved = [...new Set(assets.map((a) => a.chain))];
-    set({ lastUpdated: Date.now(), failed: [], loading: chainsInvolved });
+    set({
+      lastUpdated: Date.now(),
+      failed: [],
+      loading: chainsInvolved,
+      secFailed: false,
+      secLoading: holdings.length > 0,
+    });
+
+    if (holdings.length > 0) refreshSecurities(holdings, signal);
+    if (assets.length === 0) return;
 
     // prices (independent of balances)
     fetchRates(signal)
@@ -152,18 +223,50 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   },
 
   exportJson() {
-    return exportAssets(get().assets);
+    return exportPortfolio({ assets: get().assets, holdings: get().holdings });
   },
 
   importText(text, mode) {
     const incoming = parseImport(text);
-    const assets = mode === "replace" ? incoming : mergeAssets(get().assets, incoming);
+    const replace = mode === "replace";
+    const assets = replace ? incoming.assets : mergeAssets(get().assets, incoming.assets);
+    const holdings = replace ? incoming.holdings : mergeHoldings(get().holdings, incoming.holdings);
     // prune balances that no longer have an asset
     const ids = new Set(assets.map(assetId));
     const balances = get().balances.filter((b) => ids.has(assetId(b.asset)));
     saveAssets(assets);
-    set({ assets, balances });
+    saveHoldings(holdings);
+    set({ assets, balances, holdings });
     get().check(true);
-    return incoming.length;
+    return incoming.assets.length + incoming.holdings.length;
   },
 }));
+
+// Quotes and fx resolve independently; `secLoading` clears once both settle.
+// Prior quotes and rates are kept for whatever fails, like crypto rates.
+function refreshSecurities(holdings: Holding[], signal: AbortSignal): void {
+  const set = useWalletStore.setState;
+  const get = useWalletStore.getState;
+
+  const fx = fetchFx(signal)
+    .then((fx) => set({ fx }))
+    .catch(() => {
+      // without any rates, non-USD holdings cannot be valued at all
+      if (Object.keys(get().fx).length === 0) set({ secFailed: true });
+    });
+
+  const quotes = refreshQuotes(holdings, signal)
+    .then(({ quotes, metas }) => {
+      set((s) => ({ quotes: { ...s.quotes, ...quotes } }));
+      if (Object.keys(metas).length === 0) return;
+      // holdings that arrived without meta (a hand-written import) keep what the lookup found
+      const updated = get().holdings.map((h) =>
+        !h.meta && metas[h.isin] ? { ...h, meta: metas[h.isin] } : h,
+      );
+      saveHoldings(updated);
+      set({ holdings: updated });
+    })
+    .catch(() => set({ secFailed: true }));
+
+  Promise.all([fx, quotes]).then(() => set({ secLoading: false }));
+}

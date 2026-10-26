@@ -10,8 +10,11 @@ import { Toast } from "./ui/Toast";
 import { AddWalletDialog } from "./ui/AddWalletDialog";
 import { ManageDialog } from "./ui/ManageDialog";
 
-function chainNames(ids: string[]): string {
-  return ids.map((id) => getChain(id).symbol).join(", ");
+// "BTC, ETH, Securities"
+function sourceNames(chains: string[], securities: boolean): string {
+  const names = chains.map((id) => getChain(id).symbol);
+  if (securities) names.push("Securities");
+  return names.join(", ");
 }
 
 export default function App() {
@@ -21,6 +24,11 @@ export default function App() {
   const mode = useWalletStore((s) => s.groupingMode);
   const loading = useWalletStore((s) => s.loading);
   const failed = useWalletStore((s) => s.failed);
+  const holdings = useWalletStore((s) => s.holdings);
+  const quotes = useWalletStore((s) => s.quotes);
+  const fx = useWalletStore((s) => s.fx);
+  const secLoading = useWalletStore((s) => s.secLoading);
+  const secFailed = useWalletStore((s) => s.secFailed);
   const lastUpdated = useWalletStore((s) => s.lastUpdated);
   const setGroupingMode = useWalletStore((s) => s.setGroupingMode);
   const check = useWalletStore((s) => s.check);
@@ -28,8 +36,12 @@ export default function App() {
   const [showAdd, setShowAdd] = useState(false);
   const [showManage, setShowManage] = useState(false);
 
-  const sections = useMemo(() => buildSections(mode, balances, rates), [mode, balances, rates]);
-  const total = useMemo(() => computeGrandTotal(balances, rates), [balances, rates]);
+  const sec = useMemo(() => ({ holdings, quotes, fx }), [holdings, quotes, fx]);
+  const sections = useMemo(
+    () => buildSections(mode, balances, rates, sec),
+    [mode, balances, rates, sec],
+  );
+  const total = useMemo(() => computeGrandTotal(balances, rates, sec), [balances, rates, sec]);
 
   // Refresh on load and whenever the tab regains focus (replaces pull-to-refresh).
   useEffect(() => {
@@ -41,13 +53,14 @@ export default function App() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [check]);
 
-  const hasWallets = assets.length > 0;
-  const isLoading = loading.length > 0;
+  const hasWallets = assets.length > 0 || holdings.length > 0;
+  const isLoading = loading.length > 0 || secLoading;
+  const hasFailed = failed.length > 0 || secFailed;
 
   const status = isLoading
-    ? `Updating ${chainNames(loading)}…`
-    : failed.length > 0
-      ? `Failed to update: ${chainNames(failed)}`
+    ? `Updating ${sourceNames(loading, secLoading)}…`
+    : hasFailed
+      ? `Failed to update: ${sourceNames(failed, secFailed)}`
       : lastUpdated
         ? `Updated ${new Date(lastUpdated).toLocaleTimeString()}`
         : "";
@@ -77,7 +90,7 @@ export default function App() {
       </header>
 
       <div className="statusline" data-testid="statusline">
-        <span className={failed.length > 0 && !isLoading ? "failed" : undefined}>{status}</span>
+        <span className={hasFailed && !isLoading ? "failed" : undefined}>{status}</span>
       </div>
 
       {hasWallets ? (

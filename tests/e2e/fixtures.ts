@@ -20,6 +20,16 @@ const ESPLORA_1BTC = {
   mempool_stats: { funded_txo_sum: 0, spent_txo_sum: 0 },
 };
 
+// Securities: an S&P 500 ETF at 800 EUR, with EUR at 0.8 per USD -> $1,000 a piece.
+export const SP500 = "IE00B5BMR087";
+export const SP500_NAME = "iShares Core S&P 500 UCITS ETF USD (Acc)";
+const SP500_SEARCH = { facets: [{ results: [{ entityType: "FUND", entitySubType: "ETF" }] }] };
+const SP500_SNAPSHOT = {
+  instrument: { name: SP500_NAME, isin: SP500 },
+  quote: { last: 801, isoCurrency: "EUR", unitType: "STK", market: { name: "Xetra" } },
+};
+const SP500_TRADEGATE = { bid: "799,50", ask: "800,50", last: "800,00", close: 790 };
+
 function json(route: Route, body: unknown) {
   return route.fulfill({
     status: 200,
@@ -32,6 +42,7 @@ function json(route: Route, body: unknown) {
 export interface MockOptions {
   btcStatus?: number; // override to simulate a failing BTC endpoint (per host)
   failBlockstream?: boolean; // fail blockstream so the app fails over to mempool
+  onvistaStatus?: number; // e.g. 429 to simulate Onvista rate-limiting lookups
 }
 
 export async function mockNetwork(page: Page, opts: MockOptions = {}) {
@@ -97,6 +108,27 @@ export async function mockNetwork(page: Page, opts: MockOptions = {}) {
     // TON
     if (url.includes("tonapi")) return json(route, { balance: 2500000000 }); // 2.5 GRAM
     if (url.includes("toncenter")) return json(route, { ok: true, result: "2500000000" });
+
+    // Securities: Tradegate prices, Onvista looks ISINs up, Frankfurter/er-api give fx.
+    // Tradegate answers an ISIN it does not trade with an empty 200.
+    if (url.includes("tradegatebsx")) {
+      if (url.includes(SP500)) return json(route, SP500_TRADEGATE);
+      return route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*" }, body: "" });
+    }
+    if (url.includes("api.onvista.de")) {
+      if (opts.onvistaStatus) {
+        return route.fulfill({
+          status: opts.onvistaStatus,
+          headers: { "access-control-allow-origin": "*" },
+          body: "{}",
+        });
+      }
+      if (url.includes("/search/")) return json(route, url.includes(SP500) ? SP500_SEARCH : { facets: [] });
+      if (url.includes("/snapshot") && url.includes(SP500)) return json(route, SP500_SNAPSHOT);
+      return route.fulfill({ status: 404, headers: { "access-control-allow-origin": "*" }, body: "{}" });
+    }
+    if (url.includes("frankfurter")) return json(route, { rates: { EUR: 0.8 } });
+    if (url.includes("er-api")) return json(route, { result: "success", rates: { USD: 1, EUR: 0.8 } });
 
     // anything else is an unexpected live call — fail loudly
     return route.abort();

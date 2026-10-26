@@ -1,6 +1,7 @@
 import type {
   Balance,
   ChainId,
+  Holding,
   Rates,
   RowVM,
   SectionVM,
@@ -14,8 +15,11 @@ import {
 } from "../registry";
 import { normalizedCoins, priceOf } from "./normalize";
 import { coins as fmtCoins, shortAddress } from "./format";
+import { holdingUsd, NO_SECURITIES, type SecuritiesData } from "./securities";
 
 const UNTITLED = "Untitled"; // iOS kUntitled
+const SECURITIES = "Securities";
+const SECURITY_COLOR = "hsl(265, 40%, 56%)";
 
 function groupBy<K, T>(items: T[], key: (t: T) => K): Map<K, T[]> {
   const m = new Map<K, T[]>();
@@ -46,12 +50,16 @@ function addressSubtitle(addresses: string[]): string | null {
   return `(${addresses.length})`;
 }
 
-function makeRow(r: Omit<RowVM, "id" | "coinsStr" | "addressSubtitle">): RowVM {
+type RowInput = Omit<RowVM, "id" | "coinsStr" | "addressSubtitle"> & {
+  addressSubtitle?: string; // overrides the one derived from `addresses`
+};
+
+function makeRow(r: RowInput): RowVM {
   return {
     ...r,
     id: r.icons.join("+") + r.name + r.thisUsd + r.addresses.join(","),
     coinsStr: fmtCoins(r.coins),
-    addressSubtitle: addressSubtitle(r.addresses),
+    addressSubtitle: r.addressSubtitle ?? addressSubtitle(r.addresses),
   };
 }
 
@@ -70,8 +78,41 @@ function finalizeSection(
   };
 }
 
+// ---- securities: one row (or section) per ISIN, summed across tags ----
+function byIsin(holdings: Holding[], sec: SecuritiesData) {
+  return [...groupBy(holdings, (h) => h.isin)].map(([isin, hs]) => {
+    const meta = hs.find((h) => h.meta)?.meta;
+    return {
+      isin,
+      name: meta?.name ?? isin,
+      icon: meta?.kind ?? "security",
+      qty: sum(hs.map((h) => h.qty)),
+      usd: sum(hs.map((h) => holdingUsd(h, sec))),
+    };
+  });
+}
+
+function securityRows(holdings: Holding[], sec: SecuritiesData, totalUsd: number): RowVM[] {
+  return byIsin(holdings, sec).map((s) =>
+    makeRow({
+      name: s.name,
+      icons: [s.icon],
+      coins: s.qty,
+      thisUsd: s.usd,
+      totalUsd,
+      color: SECURITY_COLOR,
+      addresses: [s.isin], // tapping the row copies the ISIN
+      addressSubtitle: s.isin, // short enough to show whole
+    }),
+  );
+}
+
 // ---- byChain: sections per chain, token sub-rows ----
-export function byChain(balances: Balance[], rates: Rates): SectionVM[] {
+export function byChain(
+  balances: Balance[],
+  rates: Rates,
+  sec: SecuritiesData = NO_SECURITIES,
+): SectionVM[] {
   const groups = groupBy(balances, (b) => b.asset.chain);
   const sections: SectionVM[] = [];
   for (const [chainId, bals] of groups) {
@@ -118,11 +159,32 @@ export function byChain(balances: Balance[], rates: Rates): SectionVM[] {
       }),
     );
   }
+
+  // securities sit beside the chains as one more "place" holding value
+  if (sec.holdings.length > 0) {
+    const totalUsd = sum(sec.holdings.map((h) => holdingUsd(h, sec)));
+    sections.push(
+      finalizeSection({
+        name: SECURITIES,
+        icon: "securities",
+        coins: 0,
+        thisUsd: 0,
+        totalUsd,
+        color: "var(--section-bar)",
+        skipNative: true,
+        rows: securityRows(sec.holdings, sec, totalUsd).sort(byThisDesc),
+      }),
+    );
+  }
   return sections.sort(byTotalDesc);
 }
 
 // ---- byToken: native chains + token sections (each token lists the chains it's on) ----
-export function byToken(balances: Balance[], rates: Rates): SectionVM[] {
+export function byToken(
+  balances: Balance[],
+  rates: Rates,
+  sec: SecuritiesData = NO_SECURITIES,
+): SectionVM[] {
   const sections: SectionVM[] = [];
 
   // native coins, grouped by chain
@@ -194,6 +256,22 @@ export function byToken(balances: Balance[], rates: Rates): SectionVM[] {
     );
   }
 
+  // each security is its own asset, like a native coin
+  for (const s of byIsin(sec.holdings, sec)) {
+    sections.push(
+      finalizeSection({
+        name: s.name,
+        icon: s.icon,
+        coins: s.qty,
+        thisUsd: s.usd,
+        totalUsd: s.usd,
+        color: SECURITY_COLOR,
+        skipNative: false,
+        rows: [],
+      }),
+    );
+  }
+
   return sections.sort(byTotalDesc);
 }
 
@@ -207,12 +285,21 @@ function capitalize(s: string): string {
   return s.length ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
-export function byTag(balances: Balance[], rates: Rates): SectionVM[] {
+export function byTag(
+  balances: Balance[],
+  rates: Rates,
+  sec: SecuritiesData = NO_SECURITIES,
+): SectionVM[] {
   const groups = groupBy(balances, (b) => tagKey(b.asset.title));
+  const holdingGroups = groupBy(sec.holdings, (h) => tagKey(h.title));
   const sections: SectionVM[] = [];
 
-  for (const [tag, bals] of groups) {
-    const totalUsd = sum(bals.map((b) => usdStrict(b, rates)));
+  // a tag can hold wallets, securities, or both (e.g. a broker next to a ledger)
+  for (const tag of new Set([...groups.keys(), ...holdingGroups.keys()])) {
+    const bals = groups.get(tag) ?? [];
+    const holdings = holdingGroups.get(tag) ?? [];
+    const totalUsd =
+      sum(bals.map((b) => usdStrict(b, rates))) + sum(holdings.map((h) => holdingUsd(h, sec)));
 
     // sub-group by asset "kind": token-on-chain, or bare chain
     const kindGroups = groupBy(bals, (b) => {
@@ -241,6 +328,7 @@ export function byTag(balances: Balance[], rates: Rates): SectionVM[] {
           addresses: kbals.map((b) => b.asset.adr),
         });
       })
+      .concat(securityRows(holdings, sec, totalUsd))
       .sort(byThisDesc);
 
     sections.push(
@@ -266,10 +354,17 @@ export function buildSections(
   mode: keyof typeof BUILDERS,
   balances: Balance[],
   rates: Rates,
+  sec: SecuritiesData = NO_SECURITIES,
 ): SectionVM[] {
-  return BUILDERS[mode](balances, rates);
+  return BUILDERS[mode](balances, rates, sec);
 }
 
-export function grandTotal(balances: Balance[], rates: Rates): number {
-  return sum(balances.map((b) => usdStrict(b, rates)));
+export function grandTotal(
+  balances: Balance[],
+  rates: Rates,
+  sec: SecuritiesData = NO_SECURITIES,
+): number {
+  return (
+    sum(balances.map((b) => usdStrict(b, rates))) + sum(sec.holdings.map((h) => holdingUsd(h, sec)))
+  );
 }

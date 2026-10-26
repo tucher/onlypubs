@@ -1,13 +1,37 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { ChainId, TokenId } from "../domain/types";
 import { CHAINS, tokensForChain } from "../registry";
 import { useWalletStore } from "../store/walletStore";
 import { CoinIcon } from "./icons";
 import { Dialog } from "./Dialog";
+import { TagField } from "./TagField";
+import { SecurityForm } from "./SecurityForm";
+
+type AddKind = "wallet" | "security";
 
 export function AddWalletDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [kind, setKind] = useState<AddKind>("wallet");
+  return (
+    <Dialog open={open} onClose={onClose} title={kind === "wallet" ? "Add address" : "Add security"}>
+      <div className="segmented" role="group" aria-label="What to add" style={{ marginBottom: 14 }}>
+        <button aria-pressed={kind === "wallet"} onClick={() => setKind("wallet")} data-testid="add-kind-wallet">
+          Wallet
+        </button>
+        <button
+          aria-pressed={kind === "security"}
+          onClick={() => setKind("security")}
+          data-testid="add-kind-security"
+        >
+          Security
+        </button>
+      </div>
+      {kind === "wallet" ? <WalletForm onDone={onClose} /> : <SecurityForm onDone={onClose} />}
+    </Dialog>
+  );
+}
+
+function WalletForm({ onDone }: { onDone: () => void }) {
   const add = useWalletStore((s) => s.add);
-  const assets = useWalletStore((s) => s.assets);
 
   const [chain, setChain] = useState<ChainId>("btc");
   const [address, setAddress] = useState("");
@@ -16,12 +40,6 @@ export function AddWalletDialog({ open, onClose }: { open: boolean; onClose: () 
   const [error, setError] = useState<string | null>(null);
 
   const chainTokens = tokensForChain(chain);
-  const tagSuggestions = useMemo(() => {
-    const set = new Set<string>();
-    for (const a of assets) if (a.title) set.add(a.title);
-    const q = title.trim().toLowerCase();
-    return [...set].filter((t) => t.toLowerCase().startsWith(q) && t.toLowerCase() !== q).slice(0, 6);
-  }, [assets, title]);
 
   function reset() {
     setChain("btc");
@@ -39,7 +57,7 @@ export function AddWalletDialog({ open, onClose }: { open: boolean; onClose: () 
       return;
     }
     reset();
-    onClose();
+    onDone();
   }
 
   function selectChain(c: ChainId) {
@@ -57,7 +75,7 @@ export function AddWalletDialog({ open, onClose }: { open: boolean; onClose: () 
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Add address">
+    <>
       <div className="field">
         <label>
           Chain
@@ -125,26 +143,7 @@ export function AddWalletDialog({ open, onClose }: { open: boolean; onClose: () 
         </div>
       )}
 
-      <div className="field">
-        <label>Tag (optional)</label>
-        <input
-          type="text"
-          placeholder="e.g. trezor / ledger / savings"
-          value={title}
-          autoCapitalize="none"
-          onChange={(e) => setTitle(e.target.value)}
-          data-testid="tag-input"
-        />
-        {tagSuggestions.length > 0 && (
-          <div className="chips" style={{ marginTop: 8 }}>
-            {tagSuggestions.map((t) => (
-              <button key={t} className="chip" onClick={() => setTitle(t)}>
-                {t}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      <TagField value={title} onChange={setTitle} placeholder="e.g. trezor / ledger / savings" />
 
       {error && (
         <div style={{ color: "var(--danger)", fontSize: "0.85rem", marginBottom: 10 }} role="alert">
@@ -158,6 +157,6 @@ export function AddWalletDialog({ open, onClose }: { open: boolean; onClose: () 
       <p style={{ fontSize: "0.72rem", color: "var(--fg-secondary)", marginTop: 12 }}>
         Adding an address is risk-free — a public address can only be watched, never spent.
       </p>
-    </Dialog>
+    </>
   );
 }
