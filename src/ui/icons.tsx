@@ -12,9 +12,24 @@ const ICON_COLORS: Record<string, string> = {
   usdt: "hsl(162, 62%, 39%)",
   usdc: "hsl(210, 67%, 46%)",
   busd: "hsl(42, 86%, 58%)",
+  // securities, by kind (letter badges only — there are no logos to bundle);
+  // darker than the securities bar so the badge stays visible on top of it
+  securities: "hsl(265, 45%, 44%)",
+  security: "hsl(265, 45%, 44%)",
+  stock: "hsl(265, 45%, 44%)",
+  etf: "hsl(265, 45%, 44%)",
+  fund: "hsl(265, 45%, 44%)",
+  bond: "hsl(265, 45%, 44%)",
 };
 
-const LABELS: Record<string, string> = {};
+const LABELS: Record<string, string> = {
+  securities: "SEC",
+  security: "SEC",
+  stock: "STK",
+  etf: "ETF",
+  fund: "FUND",
+  bond: "BOND",
+};
 for (const c of CHAINS) LABELS[c.id] = c.symbol;
 for (const t of TOKENS) LABELS[t.id] = t.symbol;
 

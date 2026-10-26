@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
-import type { Balance } from "../domain/types";
+import type { Balance, Holding } from "../domain/types";
 import { normalizedCoins, priceOf, usdValue } from "./normalize";
-import { usd, coins, shortAddress } from "./format";
+import { usd, coins, shortAddress, parseAmount } from "./format";
 import { byChain, byToken, byTag, grandTotal } from "./grouping";
+import { isValidIsin, normalizeIsin } from "./isin";
+import { holdingUsd, toUsd, type SecuritiesData } from "./securities";
 
 // Fixed rates for deterministic math.
 const RATES = {
@@ -127,5 +129,115 @@ describe("grandTotal", () => {
       bal("eth", null, "e", "1000000000000000000"), // $3k
     ];
     expect(grandTotal(balances, RATES)).toBe(63000);
+  });
+});
+
+// ---- securities ----
+
+const SP500 = "IE00B5BMR087";
+const BUND = "DE0001102580";
+
+const hold = (isin: string, qty: number, title: string | null, id = isin + title): Holding => ({
+  id,
+  isin,
+  qty,
+  title,
+  meta:
+    isin === BUND
+      ? { name: "Bund 2032", kind: "bond", currency: "EUR" }
+      : { name: "S&P 500 ETF", kind: "etf", currency: "EUR" },
+});
+
+// EUR at 0.8 per USD keeps the math round: 1 EUR = $1.25.
+const SEC = (holdings: Holding[]): SecuritiesData => ({
+  holdings,
+  quotes: {
+    [SP500]: { price: 800, currency: "EUR", percent: false, venue: "Tradegate" },
+    [BUND]: { price: 80, currency: "EUR", percent: true, venue: "Tradegate" },
+  },
+  fx: { USD: 1, EUR: 0.8, GBP: 0.75 },
+});
+
+describe("isin", () => {
+  it("accepts real ISINs and rejects a wrong check digit", () => {
+    for (const i of [SP500, BUND, "US0378331005", "DE0007164600", "IE00B4L5Y983"]) {
+      expect(isValidIsin(i)).toBe(true);
+    }
+    expect(isValidIsin("IE00B5BMR088")).toBe(false);
+    expect(isValidIsin("IE00B5BMR08")).toBe(false);
+  });
+
+  it("normalizes spacing and case", () => {
+    expect(normalizeIsin(" ie00 b5bm r087 ")).toBe(SP500);
+  });
+
+  it("parses typed amounts with either decimal separator", () => {
+    expect(parseAmount("10,5")).toBe(10.5);
+    expect(parseAmount("10 000")).toBe(10000);
+    expect(parseAmount("")).toBeNaN();
+    expect(parseAmount("abc")).toBeNaN();
+  });
+});
+
+describe("securities valuation", () => {
+  it("converts through fx, including minor units like pence", () => {
+    expect(toUsd(100, "USD", {})).toBe(100);
+    expect(toUsd(80, "EUR", { EUR: 0.8 })).toBe(100);
+    expect(toUsd(7500, "GBX", { GBP: 0.75 })).toBe(100);
+    expect(toUsd(80, "CHF", { EUR: 0.8 })).toBeNull(); // unknown, not zero
+  });
+
+  it("values pieces and percent-of-nominal bonds", () => {
+    const data = SEC([]);
+    expect(holdingUsd(hold(SP500, 10, null), data)).toBe(10000); // 10 * 800 EUR
+    expect(holdingUsd(hold(BUND, 10000, null), data)).toBe(10000); // 10k nominal * 80 %
+  });
+
+  it("adds accrued interest to a bond's clean price", () => {
+    const data = SEC([]);
+    data.quotes[BUND] = { ...data.quotes[BUND], accrued: 2 };
+    // 10k nominal * (80 % + 2 %) = 8,200 EUR = $10,250
+    expect(holdingUsd(hold(BUND, 10000, null), data)).toBe(10250);
+  });
+
+  it("counts an unpriced holding as 0", () => {
+    const data = { ...SEC([]), quotes: {} };
+    expect(holdingUsd(hold(SP500, 10, null), data)).toBe(0);
+  });
+});
+
+describe("grouping — securities", () => {
+  const sec = SEC([hold(SP500, 10, "ibkr"), hold(SP500, 5, "bank"), hold(BUND, 10000, "bank")]);
+  const balances = [bal("btc", null, "b1", "100000000", "IBKR")]; // 1 BTC = $60k
+
+  it("byChain: one Securities section, one row per ISIN summed across tags", () => {
+    const s = byChain(balances, RATES, sec);
+    const secs = s.find((x) => x.name === "Securities");
+    expect(secs?.totalUsd).toBe(25000); // 15 * $1000 + $10k
+    expect(secs?.rows.map((r) => [r.name, r.coins, r.thisUsd])).toEqual([
+      ["S&P 500 ETF", 15, 15000],
+      ["Bund 2032", 10000, 10000],
+    ]);
+    expect(secs?.rows[0].addressSubtitle).toBe(SP500);
+    expect(secs?.rows[0].addresses).toEqual([SP500]);
+  });
+
+  it("byToken: each security is its own section", () => {
+    const s = byToken(balances, RATES, sec);
+    expect(s.find((x) => x.name === "S&P 500 ETF")?.totalUsd).toBe(15000);
+    expect(s.find((x) => x.name === "Bund 2032")?.totalUsd).toBe(10000);
+  });
+
+  it("byTag: holdings join the wallets under the same tag", () => {
+    const s = byTag(balances, RATES, sec);
+    const ibkr = s.find((x) => x.name === "Ibkr");
+    expect(ibkr?.totalUsd).toBe(70000); // 1 BTC + 10 ETF
+    expect(ibkr?.rows.map((r) => r.name)).toEqual(["BTC", "S&P 500 ETF"]);
+    const bank = s.find((x) => x.name === "Bank");
+    expect(bank?.totalUsd).toBe(15000); // 5 ETF + Bund
+  });
+
+  it("grandTotal includes securities", () => {
+    expect(grandTotal(balances, RATES, sec)).toBe(85000);
   });
 });

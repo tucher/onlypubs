@@ -25,6 +25,12 @@ export function coins(n: number): string {
   return coinsFmt.format(value);
 }
 
+// User-typed amount: "10", "10.5", "10,5", "10 000" -> number; anything else -> NaN.
+export function parseAmount(s: string): number {
+  const t = s.replace(/\s/g, "").replace(",", ".");
+  return t === "" ? NaN : Number(t);
+}
+
 // iOS `shortOf()` — head…tail of an address for compact display.
 export function shortAddress(adr: string, head = 6, tail = 4): string {
   if (adr.length <= head + tail + 1) return adr;

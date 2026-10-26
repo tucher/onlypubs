@@ -1,8 +1,8 @@
 import { useRef, useState, type ChangeEvent } from "react";
-import type { Asset } from "../domain/types";
+import type { Asset, Holding } from "../domain/types";
 import { assetId, getChain, isVerified } from "../registry";
 import { useWalletStore } from "../store/walletStore";
-import { shortAddress } from "../compute/format";
+import { coins, parseAmount, shortAddress } from "../compute/format";
 import { CoinIcon } from "./icons";
 import { OverflowMenu } from "./OverflowMenu";
 import { Dialog } from "./Dialog";
@@ -28,6 +28,7 @@ export function ManageDialog({
   onRequestAdd: () => void;
 }) {
   const assets = useWalletStore((s) => s.assets);
+  const holdings = useWalletStore((s) => s.holdings);
   const remove = useWalletStore((s) => s.remove);
   const updateTitle = useWalletStore((s) => s.updateTitle);
   const exportJson = useWalletStore((s) => s.exportJson);
@@ -63,7 +64,7 @@ export function ManageDialog({
     if (!file) return;
     const text = await file.text();
     e.target.value = "";
-    if (assets.length === 0) {
+    if (assets.length === 0 && holdings.length === 0) {
       importText(text, "merge");
     } else {
       setPendingImport(text);
@@ -73,7 +74,7 @@ export function ManageDialog({
   const grouped = groupByChain(assets);
 
   return (
-    <Dialog open={open} onClose={onClose} title="Manage wallets">
+    <Dialog open={open} onClose={onClose} title="Manage">
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <button className="btn" onClick={onRequestAdd} data-testid="manage-add">
           + Add
@@ -96,7 +97,7 @@ export function ManageDialog({
 
       {pendingImport !== null && (
         <div className="field" style={{ background: "var(--surface-2)", padding: 12, borderRadius: 10 }}>
-          <div style={{ marginBottom: 8 }}>You already have wallets. Import as…</div>
+          <div style={{ marginBottom: 8 }}>You already have wallets or securities. Import as…</div>
           <div style={{ display: "flex", gap: 8 }}>
             <button
               className="btn"
@@ -123,7 +124,9 @@ export function ManageDialog({
         </div>
       )}
 
-      {assets.length === 0 && <p style={{ color: "var(--fg-secondary)" }}>No wallets yet.</p>}
+      {assets.length === 0 && holdings.length === 0 && (
+        <p style={{ color: "var(--fg-secondary)" }}>No wallets yet.</p>
+      )}
 
       {grouped.map(([chainId, list]) => (
         <div key={chainId} style={{ marginBottom: 12 }}>
@@ -203,6 +206,17 @@ export function ManageDialog({
         </div>
       ))}
 
+      {holdings.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: "0.75rem", color: "var(--fg-secondary)", margin: "8px 0 2px" }}>
+            Securities
+          </div>
+          {holdings.map((h) => (
+            <HoldingRow key={h.id} holding={h} />
+          ))}
+        </div>
+      )}
+
       <div className="links">
         <a href="https://bit.ly/onlypubs" target="_blank" rel="noopener noreferrer">
           Telegram channel
@@ -218,5 +232,103 @@ export function ManageDialog({
         Everything is stored only on this device — no cloud, no accounts.
       </p>
     </Dialog>
+  );
+}
+
+// Unlike a wallet balance, a holding's quantity only changes when the user says
+// so (another purchase, a sale), so it is editable alongside the tag.
+function HoldingRow({ holding: h }: { holding: Holding }) {
+  const removeHolding = useWalletStore((s) => s.removeHolding);
+  const updateHolding = useWalletStore((s) => s.updateHolding);
+
+  const [editing, setEditing] = useState(false);
+  const [qtyText, setQtyText] = useState("");
+  const [tagText, setTagText] = useState("");
+  const [confirming, setConfirming] = useState(false);
+
+  const qty = parseAmount(qtyText);
+  const qtyOk = Number.isFinite(qty) && qty > 0;
+
+  function startEdit() {
+    setQtyText(String(h.qty));
+    setTagText(h.title ?? "");
+    setEditing(true);
+  }
+  function saveEdit() {
+    if (!qtyOk) return;
+    updateHolding(h.id, qty, tagText);
+    setEditing(false);
+  }
+
+  return (
+    <div className="manage-row" data-testid="manage-holding">
+      <CoinIcon id={h.meta?.kind ?? "security"} />
+      <div className="grow">
+        {editing ? (
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={qtyText}
+              autoFocus
+              aria-label={h.meta?.kind === "bond" ? "Nominal" : "Quantity"}
+              style={{ width: 90 }}
+              onChange={(e) => setQtyText(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveEdit()}
+              data-testid="edit-qty-input"
+            />
+            <input
+              type="text"
+              value={tagText}
+              placeholder="Tag"
+              aria-label="Tag"
+              autoCapitalize="none"
+              style={{ minWidth: 0, flex: 1 }}
+              onChange={(e) => setTagText(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveEdit()}
+              data-testid="edit-holding-tag-input"
+            />
+            <button className="linkbtn" disabled={!qtyOk} onClick={saveEdit}>
+              Save
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="name">
+              {h.title || "Untitled"}
+              <span style={{ color: "var(--fg-secondary)" }}> · {h.meta?.name ?? h.isin}</span>
+            </div>
+            <div className="adr mono">
+              {h.isin} · {coins(h.qty)}
+            </div>
+          </>
+        )}
+      </div>
+      {confirming ? (
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            className="linkbtn"
+            style={{ color: "var(--danger)" }}
+            onClick={() => removeHolding(h.id)}
+            data-testid="confirm-delete"
+          >
+            Delete
+          </button>
+          <button className="linkbtn" onClick={() => setConfirming(false)}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        !editing && (
+          <OverflowMenu
+            actions={[
+              { label: "Copy ISIN", onSelect: () => copyText(h.isin) },
+              { label: "Edit quantity & tag", onSelect: startEdit },
+              { label: "Delete", danger: true, onSelect: () => setConfirming(true) },
+            ]}
+          />
+        )
+      )}
+    </div>
   );
 }

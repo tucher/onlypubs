@@ -7,6 +7,9 @@ import { tronAdapter } from "./tron";
 import { tonAdapter } from "./ton";
 
 export { fetchRates } from "./prices";
+export { fetchFx } from "./fx";
+export { lookupIsin, refreshQuotes, LookupError } from "./securities";
+export type { LookupFailure } from "./securities";
 
 // family -> adapter. Adding a brand-new protocol is the only case that touches code here.
 const ADAPTERS: Record<Family, ChainAdapter> = {

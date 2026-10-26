@@ -49,6 +49,44 @@ export interface Balance {
 export type CoingeckoId = string;
 export type Rates = Record<CoingeckoId, number>;
 
+// ---- securities ----
+
+export type SecurityKind = "stock" | "etf" | "fund" | "bond";
+
+// Looked up once when a holding is added and stored with it, so a refresh only
+// needs a price.
+export interface SecurityMeta {
+  name: string;
+  kind: SecurityKind;
+  currency: string; // the instrument's own currency (for a bond: its nominal currency)
+}
+
+// A watched securities position. The inverse of a wallet: the quantity is the
+// user's own input and only the price is fetched.
+export interface Holding {
+  id: string;
+  isin: string;
+  qty: number; // pieces, or the nominal amount for a bond
+  title: string | null; // tag, shared with wallets
+  meta: SecurityMeta | null; // null until looked up (e.g. a hand-written import)
+}
+
+// `price` is per piece, or a percent of nominal when `percent` is set (bonds).
+// A bond's price is "clean": the interest accrued since the last coupon, which a
+// buyer pays on top, comes separately in `accrued` (also a percent of nominal).
+export interface Quote {
+  price: number;
+  currency: string;
+  percent: boolean;
+  venue: string;
+  accrued?: number;
+}
+
+export type Quotes = Record<string, Quote>; // keyed by ISIN
+
+// Units of each currency per 1 USD, e.g. { USD: 1, EUR: 0.89 }.
+export type FxRates = Record<string, number>;
+
 // ---- view models (output of the grouping functions) ----
 
 export interface RowVM {
